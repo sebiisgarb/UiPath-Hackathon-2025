@@ -7,7 +7,7 @@ import httpx
 
 from .models import ExternalService, APILog
 from .serializers import ExternalServiceSerializer, APILogSerializer
-from services.amadeus_client import AmadeusClient
+from services.amadeus_service import AmadeusService
 
 
 @api_view(['GET', 'POST'])
@@ -188,24 +188,61 @@ def get_activities(request):
             status=status.HTTP_503_SERVICE_UNAVAILABLE
         )
     
-    # Create Amadeus client and fetch activities
+    # Create Amadeus service and fetch activities
     try:
-        amadeus_client = AmadeusClient(client_id, client_secret)
+        amadeus_service = AmadeusService(client_id=client_id, client_secret=client_secret)
         
-        # Run async function using asyncio.run for better compatibility
-        activities = asyncio.run(
-            amadeus_client.get_activities(
-                latitude=latitude,
-                longitude=longitude,
-                radius=radius,
-                min_price=min_price,
-                max_price=max_price,
-                limit=limit,
-                sort_by_rating=sort_by_rating
-            )
+        # Use the new AmadeusService method
+        result = amadeus_service.search_activities(
+            latitude=latitude,
+            longitude=longitude,
+            radius=radius
         )
         
-        return Response(activities, status=status.HTTP_200_OK)
+        if not result['success']:
+            return Response(
+                {
+                    'error': 'Failed to fetch activities from Amadeus API',
+                    'detail': result.get('error', 'Unknown error')
+                },
+                status=status.HTTP_502_BAD_GATEWAY
+            )
+        
+        activities = result['data']
+        
+        # Apply filters (min_price, max_price, limit, sort_by_rating)
+        if min_price is not None:
+            activities = [
+                a for a in activities
+                if a.get('price') and 
+                   a['price'].get('amount') and
+                   float(a['price']['amount']) >= min_price
+            ]
+        
+        if max_price is not None:
+            activities = [
+                a for a in activities
+                if a.get('price') and 
+                   a['price'].get('amount') and
+                   float(a['price']['amount']) <= max_price
+            ]
+        
+        if sort_by_rating:
+            activities = sorted(
+                activities,
+                key=lambda a: a.get('rating', 0),
+                reverse=True
+            )
+        
+        if limit is not None:
+            activities = activities[:limit]
+        
+        # Keep only 3 pictures per activity
+        for a in activities:
+            pics = a.get('pictures', [])
+            a['pictures'] = pics[:3]
+        
+        return Response({'data': activities}, status=status.HTTP_200_OK)
     
     except httpx.HTTPStatusError as e:
         return Response(

@@ -6,6 +6,7 @@ class ChatSession(models.Model):
     Represents a chat session for trip planning.
     """
     session_id = models.CharField(max_length=100, unique=True)
+    workflow_state = models.JSONField(default=dict, blank=True)  # Store travel planning workflow state
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
     

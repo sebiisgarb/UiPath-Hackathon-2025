@@ -1,4 +1,5 @@
 import uuid
+import json
 from rest_framework import status
 from rest_framework.decorators import api_view
 from rest_framework.response import Response
@@ -9,12 +10,13 @@ from .serializers import (
     ChatMessageSerializer,
     ChatRequestSerializer
 )
+from services.travel_planning_service import TravelPlanningService
 
 
 @api_view(['POST'])
 def send_message(request):
     """
-    Send a message in a chat session.
+    Send a message in a chat session with travel planning workflow.
     
     POST /api/chat/message/
     
@@ -23,6 +25,11 @@ def send_message(request):
         "session_id": "optional-existing-session-id",
         "message": "User's message"
     }
+    
+    Response includes:
+    - message: Next question or response
+    - workflow: Current workflow state with progress checkmarks
+    - collected_info: All travel information collected so far
     """
     serializer = ChatRequestSerializer(data=request.data)
     if not serializer.is_valid():
@@ -46,7 +53,10 @@ def send_message(request):
     else:
         # Create new session
         session_id = str(uuid.uuid4())
-        chat_session = ChatSession.objects.create(session_id=session_id)
+        chat_session = ChatSession.objects.create(
+            session_id=session_id,
+            workflow_state={}
+        )
     
     # Save user message
     user_message = ChatMessage.objects.create(
@@ -55,18 +65,120 @@ def send_message(request):
         content=message_content
     )
     
-    # Generate assistant response (mock response)
-    assistant_response = _generate_response(message_content)
-    
-    assistant_message = ChatMessage.objects.create(
-        session=chat_session,
-        role='assistant',
-        content=assistant_response
-    )
-    
-    # Return the session with messages
-    session_serializer = ChatSessionSerializer(chat_session)
-    return Response(session_serializer.data)
+    # Process with travel planning service
+    try:
+        # Initialize travel planning service
+        travel_service = TravelPlanningService()
+        
+        # Get current workflow state from session
+        current_state = chat_session.workflow_state or {}
+        
+        # Extract information and get next question
+        result = travel_service.extract_travel_info(
+            message=message_content,
+            current_state=current_state
+        )
+        
+        # Update session workflow state
+        chat_session.workflow_state = result['collected_info']
+        chat_session.save()
+        
+        # Format response for frontend
+        formatted_response = travel_service.format_response_for_frontend(
+            result=result,
+            user_message=message_content
+        )
+        
+        # Create assistant response message
+        assistant_response = formatted_response['message']
+        
+        # Store the full response in metadata
+        assistant_message = ChatMessage.objects.create(
+            session=chat_session,
+            role='assistant',
+            content=assistant_response,
+            metadata=formatted_response
+        )
+        
+        # Return formatted response with session info
+        return Response({
+            'session_id': session_id,
+            'message': assistant_response,
+            'workflow': formatted_response['workflow'],
+            'collected_info': formatted_response['collected_info'],
+            'extracted_from_message': formatted_response.get('extracted_from_message', {}),
+            'messages': [
+                {
+                    'role': user_message.role,
+                    'content': user_message.content,
+                    'created_at': user_message.created_at.isoformat()
+                },
+                {
+                    'role': assistant_message.role,
+                    'content': assistant_message.content,
+                    'created_at': assistant_message.created_at.isoformat()
+                }
+            ]
+        })
+        
+    except ValueError as e:
+        # API key not configured
+        error_message = str(e)
+        if 'OpenRouter' in error_message:
+            error_message = "Travel planning service is not configured. Please set OPENROUTER_API_KEY environment variable."
+        
+        # Create fallback response
+        assistant_message = ChatMessage.objects.create(
+            session=chat_session,
+            role='assistant',
+            content=error_message
+        )
+        
+        return Response({
+            'session_id': session_id,
+            'message': error_message,
+            'error': True,
+            'messages': [
+                {
+                    'role': user_message.role,
+                    'content': user_message.content,
+                    'created_at': user_message.created_at.isoformat()
+                },
+                {
+                    'role': assistant_message.role,
+                    'content': assistant_message.content,
+                    'created_at': assistant_message.created_at.isoformat()
+                }
+            ]
+        }, status=status.HTTP_200_OK)
+        
+    except Exception as e:
+        # Unexpected error
+        error_message = f"I apologize, but I encountered an error: {str(e)}"
+        
+        assistant_message = ChatMessage.objects.create(
+            session=chat_session,
+            role='assistant',
+            content=error_message
+        )
+        
+        return Response({
+            'session_id': session_id,
+            'message': error_message,
+            'error': True,
+            'messages': [
+                {
+                    'role': user_message.role,
+                    'content': user_message.content,
+                    'created_at': user_message.created_at.isoformat()
+                },
+                {
+                    'role': assistant_message.role,
+                    'content': assistant_message.content,
+                    'created_at': assistant_message.created_at.isoformat()
+                }
+            ]
+        }, status=status.HTTP_200_OK)
 
 
 @api_view(['GET'])
