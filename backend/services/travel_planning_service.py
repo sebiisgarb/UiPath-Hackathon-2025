@@ -12,9 +12,13 @@ from natural language and guide users through a structured workflow:
 import os
 import json
 import re
+import logging
 from typing import Dict, Any, Optional
 from datetime import datetime, timedelta
 import httpx
+
+# Configure logger
+logger = logging.getLogger(__name__)
 
 
 class TravelPlanningService:
@@ -198,7 +202,7 @@ Already collected information:
                 return {}
                 
         except Exception as e:
-            print(f"Error extracting with Claude: {e}")
+            logger.error(f"Error extracting with Claude: {e}")
             # Fallback to simple extraction
             return self._fallback_extraction(message, current_state)
     
