@@ -1,4 +1,5 @@
 import uuid
+import json
 from rest_framework import status
 from rest_framework.decorators import api_view
 from rest_framework.response import Response
@@ -9,19 +10,21 @@ from .serializers import (
     ChatMessageSerializer,
     ChatRequestSerializer
 )
+from services.llm_function_calling import LLMFunctionCallingService
 
 
 @api_view(['POST'])
 def send_message(request):
     """
-    Send a message in a chat session.
+    Send a message in a chat session with LLM function calling support.
     
     POST /api/chat/message/
     
     Request body:
     {
         "session_id": "optional-existing-session-id",
-        "message": "User's message"
+        "message": "User's message",
+        "use_function_calling": true  # Optional, default is true
     }
     """
     serializer = ChatRequestSerializer(data=request.data)
@@ -33,6 +36,7 @@ def send_message(request):
     
     session_id = serializer.validated_data.get('session_id')
     message_content = serializer.validated_data['message']
+    use_function_calling = request.data.get('use_function_calling', True)
     
     # Get or create chat session
     if session_id:
@@ -55,8 +59,50 @@ def send_message(request):
         content=message_content
     )
     
-    # Generate assistant response (mock response)
-    assistant_response = _generate_response(message_content)
+    # Generate assistant response
+    if use_function_calling:
+        # Use LLM function calling
+        try:
+            # Get conversation history
+            previous_messages = ChatMessage.objects.filter(
+                session=chat_session
+            ).order_by('created_at')
+            
+            conversation_history = [
+                {'role': msg.role, 'content': msg.content}
+                for msg in previous_messages
+            ]
+            
+            # Initialize LLM service
+            llm_service = LLMFunctionCallingService()
+            
+            # Process with function calling
+            result = llm_service.chat_with_function_calling(
+                user_message=message_content,
+                conversation_history=conversation_history[:-1]  # Exclude the just-added user message
+            )
+            
+            if result['success']:
+                assistant_response = result['response']
+                
+                # Store function calls as metadata if any were made
+                if result['function_calls']:
+                    # You could store this in a separate field or log it
+                    metadata = {
+                        'function_calls': result['function_calls']
+                    }
+                    # Store metadata in message content as JSON for now
+                    # In production, you'd want a proper metadata field
+                    pass
+            else:
+                assistant_response = result.get('response', 'I apologize, but I encountered an error processing your request.')
+                
+        except Exception as e:
+            # Fallback to mock response if LLM fails
+            assistant_response = f'I apologize, but I encountered an error: {str(e)}. Please check your API credentials.'
+    else:
+        # Use mock response
+        assistant_response = _generate_response(message_content)
     
     assistant_message = ChatMessage.objects.create(
         session=chat_session,
