@@ -7,7 +7,7 @@ import httpx
 
 from .models import ExternalService, APILog
 from .serializers import ExternalServiceSerializer, APILogSerializer
-from services.amadeus_client import AmadeusClient
+from services.amadeus_service import AmadeusService
 
 
 @api_view(['GET', 'POST'])
