@@ -317,6 +317,100 @@ curl -X GET http://localhost:8000/api/integrations/health/
 }
 ```
 
+### 8. Get Activities (Amadeus API)
+
+**Endpoint:** `GET /api/integrations/activities/`
+
+**Description:** Fetches activities from the Amadeus API for a specific location. Supports price filtering, rating sorting, and result limiting.
+
+**Required Query Parameters:**
+- `latitude` (float): Latitude of the location
+- `longitude` (float): Longitude of the location
+
+**Optional Query Parameters:**
+- `radius` (int): Search radius in kilometers (default: 3)
+- `min_price` (float): Minimum price filter
+- `max_price` (float): Maximum price filter
+- `limit` (int): Maximum number of results to return
+- `sort_by_rating` (bool): Sort results by rating in descending order (default: false)
+
+**Example Request (Basic):**
+```bash
+# Get activities in Paris
+curl -X GET 'http://localhost:8000/api/integrations/activities/?latitude=48.8566&longitude=2.3522'
+```
+
+**Example Request (With All Filters):**
+```bash
+# Get top 10 highly-rated activities in Paris, priced between $20-$100, within 5km radius
+curl -X GET 'http://localhost:8000/api/integrations/activities/?latitude=48.8566&longitude=2.3522&radius=5&min_price=20&max_price=100&limit=10&sort_by_rating=true'
+```
+
+**Example Response:**
+```json
+{
+  "data": [
+    {
+      "id": "ACTIVITY123",
+      "name": "Eiffel Tower Skip-the-Line Ticket",
+      "shortDescription": "Visit the iconic Eiffel Tower...",
+      "price": {
+        "amount": "25.00",
+        "currencyCode": "EUR"
+      },
+      "rating": 4.8,
+      "pictures": [
+        "https://example.com/image1.jpg",
+        "https://example.com/image2.jpg",
+        "https://example.com/image3.jpg"
+      ],
+      "bookingLink": "https://...",
+      "geoCode": {
+        "latitude": 48.8584,
+        "longitude": 2.2945
+      }
+    }
+  ]
+}
+```
+
+**Error Responses:**
+
+Missing credentials (503):
+```json
+{
+  "error": "Amadeus API credentials not configured"
+}
+```
+
+Invalid parameters (400):
+```json
+{
+  "error": "latitude and longitude are required and must be valid numbers"
+}
+```
+
+API error (502):
+```json
+{
+  "error": "Failed to fetch activities from Amadeus API",
+  "detail": "HTTP error details"
+}
+```
+
+**Setup:**
+To use this endpoint, you need to configure Amadeus API credentials in your environment:
+```bash
+export AMADEUS_CLIENT_ID=your-client-id
+export AMADEUS_CLIENT_SECRET=your-client-secret
+```
+
+Or add them to your `.env` file:
+```
+AMADEUS_CLIENT_ID=your-client-id
+AMADEUS_CLIENT_SECRET=your-client-secret
+```
+
 ## Testing with Python Requests
 
 You can also use Python's `requests` library:
@@ -352,6 +446,22 @@ response = requests.post(
         'message': 'I want to go to Tokyo'
     }
 )
+
+# Get activities for a location
+response = requests.get(
+    'http://localhost:8000/api/integrations/activities/',
+    params={
+        'latitude': 48.8566,
+        'longitude': 2.3522,
+        'radius': 5,
+        'min_price': 20,
+        'max_price': 100,
+        'limit': 10,
+        'sort_by_rating': 'true'
+    }
+)
+activities = response.json()
+print(f"Found {len(activities['data'])} activities")
 ```
 
 ## Error Responses

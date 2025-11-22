@@ -7,6 +7,7 @@ A modular Django backend for an AI-powered trip planning application. This templ
 - **Modular Architecture**: Separate apps for trips, chat, and integrations
 - **RESTful API**: Built with Django REST Framework
 - **Mock Providers**: Flight and hotel mock data providers
+- **Amadeus API Integration**: Real-world activities data from Amadeus API
 - **LLM Parser**: Service to parse user messages and extract trip details
 - **Itinerary Generator**: Automatic day-by-day itinerary creation
 - **Admin Interface**: Full Django admin for managing data
@@ -42,7 +43,8 @@ backend/
 │   ├── llm_parser.py      # Parse user messages
 │   ├── flight_provider.py # Generate flight options
 │   ├── hotel_provider.py  # Generate hotel options
-│   └── itinerary_generator.py # Generate itineraries
+│   ├── itinerary_generator.py # Generate itineraries
+│   └── amadeus_client.py  # Amadeus API client
 └── manage.py
 ```
 
