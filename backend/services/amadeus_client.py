@@ -6,6 +6,9 @@ AMADEUS_AUTH_URL = "https://test.api.amadeus.com/v1/security/oauth2/token"
 AMADEUS_FLIGHTS_URL = "https://test.api.amadeus.com/v2/shopping/flight-offers"
 AMADEUS_ACTIVITIES_URL = "https://test.api.amadeus.com/v1/shopping/activities"
 
+# Token expiry buffer in seconds (use slightly less than actual expiry for safety)
+TOKEN_EXPIRY_BUFFER = 1700
+
 
 class AmadeusClient:
     def __init__(self, client_id: str, client_secret: str):
@@ -32,7 +35,7 @@ class AmadeusClient:
             data = response.json()
 
         self.token = data["access_token"]
-        self.token_expiry = time.time() + 1700
+        self.token_expiry = time.time() + TOKEN_EXPIRY_BUFFER
         return self.token
 
     async def get_activities(
@@ -77,13 +80,17 @@ class AmadeusClient:
         if min_price is not None:
             activities = [
                 a for a in activities
-                if float(a["price"]["amount"]) >= min_price
+                if a.get("price") and 
+                   a["price"].get("amount") and
+                   float(a["price"]["amount"]) >= min_price
             ]
 
         if max_price is not None:
             activities = [
                 a for a in activities
-                if float(a["price"]["amount"]) <= max_price
+                if a.get("price") and 
+                   a["price"].get("amount") and
+                   float(a["price"]["amount"]) <= max_price
             ]
 
         # -------------------------------

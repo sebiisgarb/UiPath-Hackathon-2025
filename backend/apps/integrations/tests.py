@@ -57,6 +57,14 @@ class ActivitiesAPITest(APITestCase):
         self.assertIn('error', response.data)
         self.assertIn('limit', response.data['error'].lower())
     
+    def test_get_activities_invalid_radius(self):
+        """Test that radius must be a valid integer."""
+        response = self.client.get('/api/integrations/activities/?latitude=48.8566&longitude=2.3522&radius=invalid')
+        
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn('error', response.data)
+        self.assertIn('radius', response.data['error'].lower())
+    
     @patch.dict('os.environ', {}, clear=True)
     def test_get_activities_missing_credentials(self):
         """Test that API returns error when credentials are not configured."""

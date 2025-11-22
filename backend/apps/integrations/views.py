@@ -137,7 +137,14 @@ def get_activities(request):
             status=status.HTTP_400_BAD_REQUEST
         )
     
-    radius = int(request.query_params.get('radius', 3))
+    # Parse radius with error handling
+    try:
+        radius = int(request.query_params.get('radius', 3))
+    except (TypeError, ValueError):
+        return Response(
+            {'error': 'radius must be a valid integer'},
+            status=status.HTTP_400_BAD_REQUEST
+        )
     min_price = request.query_params.get('min_price')
     max_price = request.query_params.get('max_price')
     limit = request.query_params.get('limit')
@@ -185,23 +192,18 @@ def get_activities(request):
     try:
         amadeus_client = AmadeusClient(client_id, client_secret)
         
-        # Run async function in sync context
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-        try:
-            activities = loop.run_until_complete(
-                amadeus_client.get_activities(
-                    latitude=latitude,
-                    longitude=longitude,
-                    radius=radius,
-                    min_price=min_price,
-                    max_price=max_price,
-                    limit=limit,
-                    sort_by_rating=sort_by_rating
-                )
+        # Run async function using asyncio.run for better compatibility
+        activities = asyncio.run(
+            amadeus_client.get_activities(
+                latitude=latitude,
+                longitude=longitude,
+                radius=radius,
+                min_price=min_price,
+                max_price=max_price,
+                limit=limit,
+                sort_by_rating=sort_by_rating
             )
-        finally:
-            loop.close()
+        )
         
         return Response(activities, status=status.HTTP_200_OK)
     
