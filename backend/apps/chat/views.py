@@ -11,6 +11,7 @@ from .serializers import (
     ChatRequestSerializer
 )
 from services.travel_planning_service import TravelPlanningService
+from services.openrouter_function_calling import OpenRouterFunctionCallingService
 
 
 @api_view(['POST'])
@@ -209,6 +210,169 @@ def list_sessions(request):
     sessions = ChatSession.objects.all()
     serializer = ChatSessionSerializer(sessions, many=True)
     return Response(serializer.data)
+
+
+@api_view(['POST'])
+def chat_with_functions(request):
+    """
+    Intelligent chat with Amadeus function calling via OpenRouter.
+    
+    POST /api/chat/functions/
+    
+    Request body:
+    {
+        "session_id": "optional-existing-session-id",
+        "message": "User's message in natural language"
+    }
+    
+    Response includes:
+    - session_id: Chat session ID
+    - message: Assistant's response
+    - function_calls: List of Amadeus functions that were called
+    - messages: Recent conversation messages
+    """
+    serializer = ChatRequestSerializer(data=request.data)
+    if not serializer.is_valid():
+        return Response(
+            serializer.errors,
+            status=status.HTTP_400_BAD_REQUEST
+        )
+    
+    session_id = serializer.validated_data.get('session_id')
+    message_content = serializer.validated_data['message']
+    
+    # Get or create chat session
+    if session_id:
+        try:
+            chat_session = ChatSession.objects.get(session_id=session_id)
+        except ChatSession.DoesNotExist:
+            return Response(
+                {'error': 'Chat session not found'},
+                status=status.HTTP_404_NOT_FOUND
+            )
+    else:
+        # Create new session
+        session_id = str(uuid.uuid4())
+        chat_session = ChatSession.objects.create(
+            session_id=session_id,
+            workflow_state={'conversation_history': []}
+        )
+    
+    # Save user message
+    user_message = ChatMessage.objects.create(
+        session=chat_session,
+        role='user',
+        content=message_content
+    )
+    
+    # Process with OpenRouter function calling service
+    try:
+        # Initialize function calling service
+        function_service = OpenRouterFunctionCallingService()
+        
+        # Get conversation history from session
+        conversation_history = chat_session.workflow_state.get('conversation_history', [])
+        
+        # Process the message with function calling
+        result = function_service.chat_with_function_calling(
+            user_message=message_content,
+            conversation_history=conversation_history
+        )
+        
+        # Update session with new conversation history
+        chat_session.workflow_state = {'conversation_history': result['conversation']}
+        chat_session.save()
+        
+        # Create assistant response message
+        assistant_response = result['response']
+        assistant_message = ChatMessage.objects.create(
+            session=chat_session,
+            role='assistant',
+            content=assistant_response,
+            metadata={
+                'function_calls': result.get('function_calls', []),
+                'success': result.get('success', True)
+            }
+        )
+        
+        # Return response
+        return Response({
+            'session_id': session_id,
+            'message': assistant_response,
+            'function_calls': result.get('function_calls', []),
+            'success': result.get('success', True),
+            'messages': [
+                {
+                    'role': user_message.role,
+                    'content': user_message.content,
+                    'created_at': user_message.created_at.isoformat()
+                },
+                {
+                    'role': assistant_message.role,
+                    'content': assistant_message.content,
+                    'created_at': assistant_message.created_at.isoformat()
+                }
+            ]
+        })
+        
+    except ValueError as e:
+        # API key not configured
+        error_message = str(e)
+        if 'OpenRouter' in error_message:
+            error_message = "Function calling service is not configured. Please set OPENROUTER_API_KEY environment variable."
+        
+        # Create fallback response
+        assistant_message = ChatMessage.objects.create(
+            session=chat_session,
+            role='assistant',
+            content=error_message
+        )
+        
+        return Response({
+            'session_id': session_id,
+            'message': error_message,
+            'error': True,
+            'messages': [
+                {
+                    'role': user_message.role,
+                    'content': user_message.content,
+                    'created_at': user_message.created_at.isoformat()
+                },
+                {
+                    'role': assistant_message.role,
+                    'content': assistant_message.content,
+                    'created_at': assistant_message.created_at.isoformat()
+                }
+            ]
+        }, status=status.HTTP_200_OK)
+        
+    except Exception as e:
+        # Unexpected error
+        error_message = f"I apologize, but I encountered an error: {str(e)}"
+        
+        assistant_message = ChatMessage.objects.create(
+            session=chat_session,
+            role='assistant',
+            content=error_message
+        )
+        
+        return Response({
+            'session_id': session_id,
+            'message': error_message,
+            'error': True,
+            'messages': [
+                {
+                    'role': user_message.role,
+                    'content': user_message.content,
+                    'created_at': user_message.created_at.isoformat()
+                },
+                {
+                    'role': assistant_message.role,
+                    'content': assistant_message.content,
+                    'created_at': assistant_message.created_at.isoformat()
+                }
+            ]
+        }, status=status.HTTP_200_OK)
 
 
 def _generate_response(user_message: str) -> str:
