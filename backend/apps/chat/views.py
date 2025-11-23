@@ -4,8 +4,11 @@ from rest_framework.response import Response
 from services.chatbot_service import ChatbotService
 
 
-# Initialize chatbot service
-chatbot_service = ChatbotService()
+def get_chatbot_service():
+    """Lazy initialization of chatbot service."""
+    if not hasattr(get_chatbot_service, '_instance'):
+        get_chatbot_service._instance = ChatbotService()
+    return get_chatbot_service._instance
 
 
 @api_view(['POST'])
@@ -39,6 +42,7 @@ def chat(request):
         )
     
     try:
+        chatbot_service = get_chatbot_service()
         result = chatbot_service.process_message(message, session_id)
         return Response(result)
     except Exception as e:
@@ -70,8 +74,18 @@ def reset(request):
     """
     session_id = request.data.get('sessionId')
     
-    if session_id:
-        chatbot_service.reset_session(session_id)
-    
-    return Response({'message': 'Session reset successful'})
+    try:
+        chatbot_service = get_chatbot_service()
+        if session_id:
+            chatbot_service.reset_session(session_id)
+        
+        return Response({'message': 'Session reset successful'})
+    except Exception as e:
+        return Response(
+            {
+                'error': 'Failed to reset session',
+                'details': str(e)
+            },
+            status=status.HTTP_500_INTERNAL_SERVER_ERROR
+        )
 

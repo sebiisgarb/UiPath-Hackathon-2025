@@ -46,7 +46,7 @@ class OpenRouterService:
             OpenRouter API response
         """
         headers = {
-            "Authorization": f"******
+            "Authorization": f"Bearer {self.api_key}",
             "Content-Type": "application/json",
             "HTTP-Referer": "local",
             "X-Title": "Travel Chatbot"
