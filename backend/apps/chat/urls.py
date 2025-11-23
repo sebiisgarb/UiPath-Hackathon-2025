@@ -2,7 +2,6 @@ from django.urls import path
 from . import views
 
 urlpatterns = [
-    path('message/', views.send_message, name='send-message'),
-    path('session/<str:session_id>/', views.get_session, name='get-session'),
-    path('sessions/', views.list_sessions, name='list-sessions'),
+    path('', views.chat, name='chat'),
+    path('reset/', views.reset, name='reset'),
 ]
