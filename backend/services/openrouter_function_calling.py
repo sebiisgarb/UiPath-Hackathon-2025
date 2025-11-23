@@ -30,6 +30,13 @@ class OpenRouterFunctionCallingService:
     Comprehensive LLM-powered function calling service using OpenRouter.
     Supports all Amadeus API functions with natural language understanding.
     Maintains conversation context across chat sessions.
+    
+    Attributes:
+        api_key (str): OpenRouter API key
+        model (str): LLM model identifier (default: anthropic/claude-3.5-sonnet)
+        base_url (str): OpenRouter API base URL
+        timeout (int): Request timeout in seconds (default: 60)
+        amadeus (AmadeusService): Lazy-initialized Amadeus service instance
     """
     
     def __init__(self, api_key: Optional[str] = None, timeout: int = 60):
@@ -38,7 +45,8 @@ class OpenRouterFunctionCallingService:
         
         Args:
             api_key: OpenRouter API key (defaults to env var OPENROUTER_API_KEY)
-            timeout: Request timeout in seconds (default: 60)
+            timeout: Request timeout in seconds (default: 60). Increase for complex
+                    queries that may require multiple function calls.
         """
         self.api_key = api_key or os.getenv('OPENROUTER_API_KEY')
         if not self.api_key:
@@ -540,7 +548,10 @@ class OpenRouterFunctionCallingService:
         Args:
             user_message: User's message in natural language
             conversation_history: Previous conversation messages for context
-            max_iterations: Maximum number of function calling iterations
+            max_iterations: Maximum number of function calling iterations (default: 5).
+                          This prevents infinite loops when the LLM makes repeated
+                          function calls. Complex queries requiring multiple API calls
+                          should complete within this limit.
             
         Returns:
             Dictionary with:
@@ -663,7 +674,11 @@ Always be friendly, informative, and helpful in your responses.""".format(
                 # Continue loop to get final response with function results
             else:
                 # Max iterations reached
-                final_response = "I apologize, but I've reached the maximum number of processing steps. Please try rephrasing your request."
+                final_response = ("I apologize, but I've reached the maximum number of processing steps for this query. "
+                                "This can happen with very complex requests. Please try:\n"
+                                "- Breaking your request into simpler, separate questions\n"
+                                "- Asking for one thing at a time\n"
+                                "- Being more specific about what you need")
             
             # Build the final conversation history (excluding system message)
             final_conversation = messages + [

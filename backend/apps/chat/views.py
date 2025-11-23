@@ -316,10 +316,12 @@ def chat_with_functions(request):
         })
         
     except ValueError as e:
-        # API key not configured
+        # API key not configured - ValueError is raised in __init__ when key is missing
         error_message = str(e)
-        if 'OpenRouter' in error_message:
+        if 'API key not provided' in error_message or 'OPENROUTER_API_KEY' in error_message:
             error_message = "Function calling service is not configured. Please set OPENROUTER_API_KEY environment variable."
+        elif 'Amadeus' in error_message:
+            error_message = "Amadeus service is not configured. Please set AMADEUS_CLIENT_ID and AMADEUS_CLIENT_SECRET environment variables."
         
         # Create fallback response
         assistant_message = ChatMessage.objects.create(
