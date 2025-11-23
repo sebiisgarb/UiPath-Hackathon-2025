@@ -18,6 +18,13 @@ from .amadeus_service import AmadeusService
 logger = logging.getLogger(__name__)
 
 
+# Common IATA codes for reference in system messages
+COMMON_IATA_CODES = {
+    'cities': 'PAR (Paris), LON (London), NYC (New York), ROM (Rome), BCN (Barcelona), BUH (Bucharest)',
+    'airports': 'JFK, LAX, CDG, LHR, FCO, OTP (major airports)'
+}
+
+
 class OpenRouterFunctionCallingService:
     """
     Comprehensive LLM-powered function calling service using OpenRouter.
@@ -25,12 +32,13 @@ class OpenRouterFunctionCallingService:
     Maintains conversation context across chat sessions.
     """
     
-    def __init__(self, api_key: Optional[str] = None):
+    def __init__(self, api_key: Optional[str] = None, timeout: int = 60):
         """
         Initialize the OpenRouter function calling service.
         
         Args:
             api_key: OpenRouter API key (defaults to env var OPENROUTER_API_KEY)
+            timeout: Request timeout in seconds (default: 60)
         """
         self.api_key = api_key or os.getenv('OPENROUTER_API_KEY')
         if not self.api_key:
@@ -38,6 +46,7 @@ class OpenRouterFunctionCallingService:
         
         self.model = "anthropic/claude-3.5-sonnet"
         self.base_url = "https://openrouter.ai/api/v1/chat/completions"
+        self.timeout = timeout
         self.amadeus = None  # Lazy initialization
         
     def _get_amadeus_service(self) -> AmadeusService:
@@ -565,10 +574,13 @@ Important guidelines:
 6. Maintain natural conversation flow
 
 Common IATA codes:
-- PAR (Paris), LON (London), NYC (New York), ROM (Rome), BCN (Barcelona)
-- JFK, LAX, CDG, LHR, FCO (major airports)
+- Cities: {cities}
+- Airports: {airports}
 
-Always be friendly, informative, and helpful in your responses."""
+Always be friendly, informative, and helpful in your responses.""".format(
+                cities=COMMON_IATA_CODES['cities'],
+                airports=COMMON_IATA_CODES['airports']
+            )
         }
         
         # Prepare messages for API call
@@ -599,7 +611,7 @@ Always be friendly, informative, and helpful in your responses."""
                 }
                 
                 # Make API call to OpenRouter
-                with httpx.Client(timeout=60.0) as client:
+                with httpx.Client(timeout=self.timeout) as client:
                     response = client.post(
                         self.base_url,
                         headers={
