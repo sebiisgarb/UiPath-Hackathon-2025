@@ -5,6 +5,7 @@ Django settings for AI Trip Planner backend project.
 from pathlib import Path
 import os
 from dotenv import load_dotenv
+from corsheaders.defaults import default_headers
 
 load_dotenv()
 
@@ -33,9 +34,7 @@ INSTALLED_APPS = [
     'corsheaders',
     
     # Local apps
-    'apps.trips',
     'apps.chat',
-    'apps.integrations',
 ]
 
 MIDDLEWARE = [
@@ -122,6 +121,12 @@ REST_FRAMEWORK = {
 CORS_ALLOWED_ORIGINS = [
     'http://localhost:3000',
     'http://127.0.0.1:3000',
+    'http://localhost:5173',
 ]
+
+CORS_ALLOW_HEADERS = list(default_headers) + [
+    "x-session-id",
+]
+
 
 CORS_ALLOW_CREDENTIALS = True

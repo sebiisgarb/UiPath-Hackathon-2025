@@ -1,8 +1,11 @@
 from django.urls import path
 from . import views
+from .views import LocateCityView
 
 urlpatterns = [
-    path('message/', views.send_message, name='send-message'),
-    path('session/<str:session_id>/', views.get_session, name='get-session'),
-    path('sessions/', views.list_sessions, name='list-sessions'),
+    path('', views.chat, name='chat'),
+    path('reset/', views.reset, name='reset'),
+    path('update_state/', views.update_state, name='update_state'),
+    path('summary/', views.summary, name='summary'),
+    path('locate_city/', LocateCityView.as_view(), name='locate_city'),
 ]

@@ -1,249 +1,163 @@
-import uuid
-import json
 from rest_framework import status
 from rest_framework.decorators import api_view
 from rest_framework.response import Response
-
-from .models import ChatSession, ChatMessage
-from .serializers import (
-    ChatSessionSerializer,
-    ChatMessageSerializer,
-    ChatRequestSerializer
-)
-from services.travel_planning_service import TravelPlanningService
+from services.chatbot_service import ChatbotService
+from django.views.decorators.csrf import csrf_exempt
+from django.utils.decorators import method_decorator
+from django.views import View
+from django.http import JsonResponse
+from services.image_city_service import ImageCityService
 
 
-@api_view(['POST'])
-def send_message(request):
+def get_chatbot_service():
+    """Lazy initialization of chatbot service."""
+    if not hasattr(get_chatbot_service, '_instance'):
+        get_chatbot_service._instance = ChatbotService()
+    return get_chatbot_service._instance
+
+
+@api_view(['GET', 'POST'])
+def chat(request):
     """
-    Send a message in a chat session with travel planning workflow.
+    Handle chat messages with tool-calling orchestration.
     
-    POST /api/chat/message/
+    POST /chat
     
     Request body:
     {
-        "session_id": "optional-existing-session-id",
-        "message": "User's message"
+        "message": "User's message",
+        "sessionId": "optional-existing-session-id"
     }
     
-    Response includes:
-    - message: Next question or response
-    - workflow: Current workflow state with progress checkmarks
-    - collected_info: All travel information collected so far
+    Response:
+    {
+        "reply": "final LLM message",
+        "state": {...},
+        "history": [...],
+        "session_id": "session-id"
+    }
     """
-    serializer = ChatRequestSerializer(data=request.data)
-    if not serializer.is_valid():
-        return Response(
-            serializer.errors,
-            status=status.HTTP_400_BAD_REQUEST
-        )
-    
-    session_id = serializer.validated_data.get('session_id')
-    message_content = serializer.validated_data['message']
-    
-    # Get or create chat session
-    if session_id:
-        try:
-            chat_session = ChatSession.objects.get(session_id=session_id)
-        except ChatSession.DoesNotExist:
-            return Response(
-                {'error': 'Chat session not found'},
-                status=status.HTTP_404_NOT_FOUND
-            )
-    else:
-        # Create new session
-        session_id = str(uuid.uuid4())
-        chat_session = ChatSession.objects.create(
-            session_id=session_id,
-            workflow_state={}
-        )
-    
-    # Save user message
-    user_message = ChatMessage.objects.create(
-        session=chat_session,
-        role='user',
-        content=message_content
+    chatbot_service = get_chatbot_service()
+
+    if request.method == 'GET':
+        session_id = request.query_params.get('sessionId') or request.query_params.get('session_id') or request.headers.get('X-Session-Id')
+        if not session_id:
+            return Response({'error': 'sessionId query param required'}, status=status.HTTP_400_BAD_REQUEST)
+        data = chatbot_service.get_session_data(session_id)
+        if not data:
+            return Response({'error': 'Session not found'}, status=status.HTTP_404_NOT_FOUND)
+        return Response(data)
+
+    # POST
+    message = request.data.get('message')
+    session_id = (
+        request.data.get('sessionId')
+        or request.data.get('session_id')
+        or request.headers.get('X-Session-Id')
     )
-    
-    # Process with travel planning service
+    if not message:
+        return Response({'error': 'Message is required'}, status=status.HTTP_400_BAD_REQUEST)
     try:
-        # Initialize travel planning service
-        travel_service = TravelPlanningService()
-        
-        # Get current workflow state from session
-        current_state = chat_session.workflow_state or {}
-        
-        # Extract information and get next question
-        result = travel_service.extract_travel_info(
-            message=message_content,
-            current_state=current_state
-        )
-        
-        # Update session workflow state
-        chat_session.workflow_state = result['collected_info']
-        chat_session.save()
-        
-        # Format response for frontend
-        formatted_response = travel_service.format_response_for_frontend(
-            result=result,
-            user_message=message_content
-        )
-        
-        # Create assistant response message
-        assistant_response = formatted_response['message']
-        
-        # Store the full response in metadata
-        assistant_message = ChatMessage.objects.create(
-            session=chat_session,
-            role='assistant',
-            content=assistant_response,
-            metadata=formatted_response
-        )
-        
-        # Return formatted response with session info
-        return Response({
-            'session_id': session_id,
-            'message': assistant_response,
-            'workflow': formatted_response['workflow'],
-            'collected_info': formatted_response['collected_info'],
-            'extracted_from_message': formatted_response.get('extracted_from_message', {}),
-            'messages': [
-                {
-                    'role': user_message.role,
-                    'content': user_message.content,
-                    'created_at': user_message.created_at.isoformat()
-                },
-                {
-                    'role': assistant_message.role,
-                    'content': assistant_message.content,
-                    'created_at': assistant_message.created_at.isoformat()
-                }
-            ]
-        })
-        
-    except ValueError as e:
-        # API key not configured
-        error_message = str(e)
-        if 'OpenRouter' in error_message:
-            error_message = "Travel planning service is not configured. Please set OPENROUTER_API_KEY environment variable."
-        
-        # Create fallback response
-        assistant_message = ChatMessage.objects.create(
-            session=chat_session,
-            role='assistant',
-            content=error_message
-        )
-        
-        return Response({
-            'session_id': session_id,
-            'message': error_message,
-            'error': True,
-            'messages': [
-                {
-                    'role': user_message.role,
-                    'content': user_message.content,
-                    'created_at': user_message.created_at.isoformat()
-                },
-                {
-                    'role': assistant_message.role,
-                    'content': assistant_message.content,
-                    'created_at': assistant_message.created_at.isoformat()
-                }
-            ]
-        }, status=status.HTTP_200_OK)
-        
+        result = chatbot_service.process_message(message, session_id)
+        return Response(result)
     except Exception as e:
-        # Unexpected error
-        error_message = f"I apologize, but I encountered an error: {str(e)}"
-        
-        assistant_message = ChatMessage.objects.create(
-            session=chat_session,
-            role='assistant',
-            content=error_message
-        )
-        
-        return Response({
-            'session_id': session_id,
-            'message': error_message,
-            'error': True,
-            'messages': [
-                {
-                    'role': user_message.role,
-                    'content': user_message.content,
-                    'created_at': user_message.created_at.isoformat()
-                },
-                {
-                    'role': assistant_message.role,
-                    'content': assistant_message.content,
-                    'created_at': assistant_message.created_at.isoformat()
-                }
-            ]
-        }, status=status.HTTP_200_OK)
+        return Response({'error': 'Failed to process message', 'details': str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 
-@api_view(['GET'])
-def get_session(request, session_id):
+@api_view(['POST'])
+def reset(request):
     """
-    Get a chat session with all messages.
+    Reset a chat session.
     
-    GET /api/chat/session/{session_id}/
+    POST /reset
+    
+    Request body:
+    {
+        "sessionId": "session-id"
+    }
+    
+    Response:
+    {
+        "message": "Session reset successful"
+    }
     """
+    session_id = request.data.get('sessionId')
+    
     try:
-        chat_session = ChatSession.objects.get(session_id=session_id)
-        serializer = ChatSessionSerializer(chat_session)
-        return Response(serializer.data)
-    except ChatSession.DoesNotExist:
+        chatbot_service = get_chatbot_service()
+        if session_id:
+            chatbot_service.reset_session(session_id)
+        
+        return Response({'message': 'Session reset successful'})
+    except Exception as e:
         return Response(
-            {'error': 'Chat session not found'},
-            status=status.HTTP_404_NOT_FOUND
+            {
+                'error': 'Failed to reset session',
+                'details': str(e)
+            },
+            status=status.HTTP_500_INTERNAL_SERVER_ERROR
         )
 
 
+@api_view(['POST'])
+def update_state(request):
+    """Partial update of workflow state (flight/hotel/activities/itinerary/progress_stage)."""
+    chatbot_service = get_chatbot_service()
+    session_id = (
+        request.data.get('sessionId')
+        or request.data.get('session_id')
+        or request.headers.get('X-Session-Id')
+    )
+    if not session_id:
+        return Response({'error': 'sessionId required'}, status=status.HTTP_400_BAD_REQUEST)
+    updates = request.data.get('updates') or {}
+    if not isinstance(updates, dict):
+        return Response({'error': 'updates must be an object'}, status=status.HTTP_400_BAD_REQUEST)
+    state = chatbot_service.update_state(session_id, updates)
+    if state is None:
+        return Response({'error': 'Session not found'}, status=status.HTTP_404_NOT_FOUND)
+    return Response({'session_id': session_id, 'state': state})
+
+
 @api_view(['GET'])
-def list_sessions(request):
-    """
-    List all chat sessions.
-    
-    GET /api/chat/sessions/
-    """
-    sessions = ChatSession.objects.all()
-    serializer = ChatSessionSerializer(sessions, many=True)
-    return Response(serializer.data)
+def summary(request):
+    """Return a compact summary of current planning selections."""
+    chatbot_service = get_chatbot_service()
+    session_id = request.query_params.get('sessionId') or request.query_params.get('session_id') or request.headers.get('X-Session-Id')
+    if not session_id:
+        return Response({'error': 'sessionId required'}, status=status.HTTP_400_BAD_REQUEST)
+    data = chatbot_service.get_session_data(session_id)
+    if not data:
+        return Response({'error': 'Session not found'}, status=status.HTTP_404_NOT_FOUND)
+    state = data['state']
+    summary_payload = {
+        'session_id': session_id,
+        'progress_stage': state.get('progress_stage'),
+        'origin_airport': state.get('origin_airport'),
+        'destination_airport': state.get('destination_airport'),
+        'departure_date': state.get('departure_date'),
+        'return_date': state.get('return_date'),
+        'adults': state.get('adults'),
+        'children': state.get('children'),
+        'flight_selected': bool(state.get('flight_selection')),
+        'hotel_selected': bool(state.get('hotel_selection')),
+        'activities_count': len(state.get('activities_selection') or []),
+        'itinerary_defined': bool(state.get('itinerary'))
+    }
+    return Response({'summary': summary_payload, 'state': state})
 
 
-def _generate_response(user_message: str) -> str:
-    """
-    Generate a mock assistant response.
-    In production, this would call an LLM API.
-    """
-    message_lower = user_message.lower()
-    
-    if any(word in message_lower for word in ['trip', 'travel', 'vacation', 'visit']):
-        return ("I'd be happy to help you plan your trip! To create the best itinerary for you, "
-                "could you provide more details about:\n"
-                "- Your destination\n"
-                "- Travel dates or preferred time of year\n"
-                "- Budget range\n"
-                "- Number of travelers\n"
-                "- Any specific interests or preferences")
-    elif any(word in message_lower for word in ['flight', 'fly']):
-        return ("I can help you find flight options. Please provide:\n"
-                "- Departure city\n"
-                "- Destination\n"
-                "- Travel dates\n"
-                "- Number of passengers\n"
-                "- Preferred airline or class")
-    elif any(word in message_lower for word in ['hotel', 'accommodation', 'stay']):
-        return ("I can help you find accommodation. Please share:\n"
-                "- Destination\n"
-                "- Check-in and check-out dates\n"
-                "- Number of guests\n"
-                "- Preferred star rating or budget\n"
-                "- Any specific amenities you need")
-    else:
-        return ("Hello! I'm your AI trip planning assistant. I can help you:\n"
-                "- Plan complete trips with flights, hotels, and itineraries\n"
-                "- Find flight options\n"
-                "- Search for accommodations\n"
-                "- Create day-by-day itineraries\n\n"
-                "How can I assist you with your travel plans today?")
+@method_decorator(csrf_exempt, name="dispatch")
+class LocateCityView(View):
+    def post(self, request):
+        if not request.FILES.get("image"):
+            return JsonResponse({"error": "Lipsește fișierul imagine"}, status=400)
+        image_file = request.FILES["image"]
+        user_hint = request.POST.get("hint")
+        try:
+            service = ImageCityService()
+            analysis = service.analyze(image_file.read(), user_hint=user_hint)
+            return JsonResponse({"data": analysis})
+        except Exception as e:
+            return JsonResponse({"error": f"Eroare internă: {str(e)}"}, status=500)
+
